@@ -1,8 +1,13 @@
 import json
+import os
 import sys
 import subprocess
 import ipaddress
+import tempfile
 import time
+
+if sys.platform == "win32":
+    import winreg
 
 class NetworkManager:
     def __init__(self):
@@ -115,7 +120,6 @@ class NetworkManager:
                     guid = conf.get("SettingID")
                     if guid:
                         try:
-                            import winreg
                             reg_path = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{guid}"
                             key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path)
                             
@@ -378,28 +382,24 @@ class NetworkManager:
                 "}\n"
             )
 
-            import os
-            temp_file = f"temp_route_{int(time.time())}.ps1"
+            # Write script to a system temp file and run it; always delete after execution.
+            # powershell -Command fails on long/complex scripts due to command-line parsing limits.
+            fd, temp_file = tempfile.mkstemp(suffix=".ps1")
             try:
-                with open(temp_file, "w") as f_out:
+                with os.fdopen(fd, "w") as f_out:
                     f_out.write(ps_script)
                 
                 cmd_run = ["powershell", "-ExecutionPolicy", "Bypass", "-File", temp_file]
                 res_run = subprocess.run(cmd_run, capture_output=True, text=True, creationflags=self.creationflags)
                 
-                # Cleanup file
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                
                 if res_run.returncode != 0:
                     return False, f"Failed to apply routing: {res_run.stderr.strip()}"
-            except Exception as e:
-                if os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except Exception:
-                        pass
-                return False, f"Exception creating/running temporary route script: {str(e)}"
+            finally:
+                # Always delete the temp file, success or failure
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass
 
             inferred_note = f" (Warning: gateway {gateway} was inferred — verify this is correct)" if gateway_inferred else ""
             return True, f"Routing successfully updated via {selected_adapter} (Gateway: {gateway or 'On-link'}).{inferred_note}"
