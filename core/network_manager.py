@@ -14,62 +14,61 @@ class NetworkManager:
         """
         Retrieves physical network adapters (excluding Wi-Fi and Bluetooth)
         along with their active IPv4 addresses and gateways.
-        Uses fast, robust primitive cmdlets.
+        Uses a batched WMI/CIM query for maximum speed and robustness.
         """
-        # 1. Get physical adapters
-        adapters_cmd = [
-            "powershell", "-Command",
-            "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, InterfaceIndex | ConvertTo-Json -Compress"
-        ]
-        
-        # 2. Get IP addresses
-        ips_cmd = [
-            "powershell", "-Command",
-            "Get-NetIPAddress -AddressFamily IPv4 | Select-Object InterfaceIndex, IPAddress | ConvertTo-Json -Compress"
-        ]
-        
-        # 3. Get gateways
-        routes_cmd = [
-            "powershell", "-Command",
-            "Get-NetRoute -DestinationPrefix 0.0.0.0/0 -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object InterfaceAlias, NextHop | ConvertTo-Json -Compress"
-        ]
+        script = (
+            "$adapters = Get-CimInstance Win32_NetworkAdapter | Where-Object { $_.NetConnectionID -ne $null } | Select-Object NetConnectionID, Name, InterfaceIndex, NetConnectionStatus | ConvertTo-Json -Compress; "
+            "$config = Get-CimInstance Win32_NetworkAdapterConfiguration | Select-Object InterfaceIndex, IPAddress, DefaultIPGateway, SettingID | ConvertTo-Json -Compress; "
+            "Write-Output '===ADAPTERS==='; Write-Output $adapters; "
+            "Write-Output '===CONFIG==='; Write-Output $config;"
+        )
+        cmd = ["powershell", "-Command", script]
 
         adapters_list = []
-        ips_map = {}
-        routes_map = {}
+        config_list = []
 
         try:
-            res_adapters = subprocess.run(adapters_cmd, capture_output=True, text=True, creationflags=self.creationflags)
-            if res_adapters.returncode == 0 and res_adapters.stdout.strip():
-                data = json.loads(res_adapters.stdout.strip())
-                adapters_list = [data] if isinstance(data, dict) else data
+            res = subprocess.run(cmd, capture_output=True, text=True, creationflags=self.creationflags)
+            if res.returncode == 0 and res.stdout.strip():
+                parts = res.stdout.split("===")
+                sections = {}
+                current_key = None
+                for part in parts:
+                    part_str = part.strip()
+                    if part_str in ("ADAPTERS", "CONFIG"):
+                        current_key = part_str
+                    elif current_key and part_str:
+                        sections[current_key] = part_str
+                        current_key = None
 
-            res_ips = subprocess.run(ips_cmd, capture_output=True, text=True, creationflags=self.creationflags)
-            if res_ips.returncode == 0 and res_ips.stdout.strip():
-                data = json.loads(res_ips.stdout.strip())
-                ips = [data] if isinstance(data, dict) else data
-                for ip_info in ips:
-                    idx = ip_info.get("InterfaceIndex")
-                    addr = ip_info.get("IPAddress")
-                    if addr != "127.0.0.1":
-                        ips_map[idx] = addr
+                if "ADAPTERS" in sections:
+                    try:
+                        data = json.loads(sections["ADAPTERS"])
+                        adapters_list = [data] if isinstance(data, dict) else data
+                    except Exception:
+                        pass
 
-            res_routes = subprocess.run(routes_cmd, capture_output=True, text=True, creationflags=self.creationflags)
-            if res_routes.returncode == 0 and res_routes.stdout.strip():
-                data = json.loads(res_routes.stdout.strip())
-                routes = [data] if isinstance(data, dict) else data
-                for r in routes:
-                    alias = r.get("InterfaceAlias")
-                    hop = r.get("NextHop")
-                    routes_map[alias] = hop
+                if "CONFIG" in sections:
+                    try:
+                        data = json.loads(sections["CONFIG"])
+                        config_list = [data] if isinstance(data, dict) else data
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"Error executing adapter commands: {e}", file=sys.stderr)
 
+        # Map CONFIG by InterfaceIndex
+        config_map = {}
+        for c in config_list:
+            idx = c.get("InterfaceIndex")
+            if idx is not None:
+                config_map[idx] = c
+
         merged_adapters = []
         for a in adapters_list:
-            name = a.get("Name")
-            desc = a.get("InterfaceDescription", "")
-            status = a.get("Status", "Disconnected")
+            name = a.get("NetConnectionID")
+            desc = a.get("Name", "")
+            status_code = a.get("NetConnectionStatus")
             idx = a.get("InterfaceIndex")
 
             name_lower = name.lower() if name else ""
@@ -79,13 +78,81 @@ class NetworkManager:
             if "bluetooth" in name_lower or "bluetooth" in desc_lower:
                 continue
 
-            ip = ips_map.get(idx)
-            if not ip:
-                ip = "No IP Address"
+            status = "Disconnected"
+            if status_code == 2:
+                status = "Up"
 
-            gateway = routes_map.get(name)
-            if not gateway or gateway == "0.0.0.0":
-                gateway = "None"
+            # Get IP and Gateway from configuration/registry
+            ip = "No IP Address"
+            gateway = "None"
+            conf = config_map.get(idx)
+            if conf:
+                ips = conf.get("IPAddress")
+                if ips:
+                    if isinstance(ips, list):
+                        for ip_addr in ips:
+                            if ":" not in ip_addr and ip_addr != "127.0.0.1":
+                                ip = ip_addr
+                                break
+                    elif isinstance(ips, str):
+                        if ":" not in ips and ips != "127.0.0.1":
+                            ip = ips
+
+                # 1. Check WMI DefaultIPGateway
+                gws = conf.get("DefaultIPGateway")
+                if gws:
+                    if isinstance(gws, list):
+                        for gw in gws:
+                            if gw and gw != "0.0.0.0":
+                                gateway = gw
+                                break
+                    elif isinstance(gws, str):
+                        if gws and gws != "0.0.0.0":
+                            gateway = gws
+
+                # 2. Check Registry fallback if WMI gateway is empty
+                if gateway == "None" or gateway == "0.0.0.0":
+                    guid = conf.get("SettingID")
+                    if guid:
+                        try:
+                            import winreg
+                            reg_path = rf"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{guid}"
+                            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path)
+                            
+                            # Try DhcpDefaultGateway
+                            try:
+                                reg_gws, _ = winreg.QueryValueEx(key, "DhcpDefaultGateway")
+                                if reg_gws:
+                                    if isinstance(reg_gws, list):
+                                        for gw in reg_gws:
+                                            if gw and gw != "0.0.0.0":
+                                                gateway = gw
+                                                break
+                                    elif isinstance(reg_gws, str):
+                                        if reg_gws and reg_gws != "0.0.0.0":
+                                            gateway = reg_gws
+                            except FileNotFoundError:
+                                pass
+                            
+                            # Try DefaultGateway (static)
+                            if gateway == "None" or gateway == "0.0.0.0":
+                                try:
+                                    reg_gws, _ = winreg.QueryValueEx(key, "DefaultGateway")
+                                    if reg_gws:
+                                        if isinstance(reg_gws, list):
+                                            for gw in reg_gws:
+                                                if gw and gw != "0.0.0.0":
+                                                    gateway = gw
+                                                    break
+                                        elif isinstance(reg_gws, str):
+                                            if reg_gws and reg_gws != "0.0.0.0":
+                                                gateway = reg_gws
+                                except FileNotFoundError:
+                                    pass
+                            
+                            winreg.CloseKey(key)
+                        except Exception:
+                            pass
 
             merged_adapters.append({
                 "InterfaceAlias": name,
@@ -95,7 +162,6 @@ class NetworkManager:
                 "IPv4DefaultGateway": gateway,
                 "Status": status
             })
-
         return merged_adapters
 
     def set_dhcp(self, adapter_name: str) -> tuple[bool, str]:
@@ -171,6 +237,7 @@ class NetworkManager:
         """
         Clears existing static routes for the given subnets and re-adds them
         pointing to the selected adapter with a high priority (low metric, e.g. 5).
+        Uses a batched single-process PowerShell script to avoid process spawn overhead.
         """
         try:
             # 1. Discover the gateway for the selected adapter.
@@ -178,7 +245,8 @@ class NetworkManager:
             gateway = configured_gateway
             gateway_inferred = False
             if not gateway:
-                for _ in range(10):
+                # Poll every 0.5 seconds for up to 20 times (10 seconds total)
+                for _ in range(20):
                     adapters = self.get_adapters()
                     for a in adapters:
                         if a["InterfaceAlias"] == selected_adapter:
@@ -191,7 +259,7 @@ class NetworkManager:
                                     break
                     if gateway:
                         break
-                    time.sleep(1)
+                    time.sleep(0.5)
 
                 # Fallback: if we still don't have a gateway but have a valid IP, infer gateway as x.y.z.1
                 if not gateway:
@@ -221,90 +289,10 @@ class NetworkManager:
 
             # Also ensure all subnets currently being applied are in the managed set
             for s in subnets:
-                all_managed_subnets.add(s.strip())
+                if s and s.strip():
+                    all_managed_subnets.add(s.strip())
 
-            # 3. Helper to compare gateways
-            def gateways_equal(gw1, gw2):
-                g1 = (gw1 or "").strip().lower()
-                g2 = (gw2 or "").strip().lower()
-                if g1 in ("", "0.0.0.0", "none", "on-link"):
-                    g1 = ""
-                if g2 in ("", "0.0.0.0", "none", "on-link"):
-                    g2 = ""
-                return g1 == g2
-
-            # 4. Query global persistent routes to find mismatching gateways or obsolete subnets
-            persistent_routes = []
-            cmd_pers = [
-                "powershell", "-Command",
-                "Get-NetRoute -PolicyStore PersistentStore -ErrorAction SilentlyContinue | Select-Object DestinationPrefix, NextHop | ConvertTo-Json -Compress"
-            ]
-            res_pers = subprocess.run(cmd_pers, capture_output=True, text=True, creationflags=self.creationflags)
-            if res_pers.returncode == 0 and res_pers.stdout.strip():
-                try:
-                    data = json.loads(res_pers.stdout.strip())
-                    persistent_routes = [data] if isinstance(data, dict) else data
-                except Exception:
-                    pass
-
-            # 5. Query active manual static routes
-            active_routes = []
-            cmd_act = [
-                "powershell", "-Command",
-                "Get-NetRoute -Protocol Netmgmt -ErrorAction SilentlyContinue | Select-Object DestinationPrefix, NextHop | ConvertTo-Json -Compress"
-            ]
-            res_act = subprocess.run(cmd_act, capture_output=True, text=True, creationflags=self.creationflags)
-            if res_act.returncode == 0 and res_act.stdout.strip():
-                try:
-                    data = json.loads(res_act.stdout.strip())
-                    active_routes = [data] if isinstance(data, dict) else data
-                except Exception:
-                    pass
-
-            # 6. Build a list of specific routes we want to remove
-            routes_to_remove = []  # list of tuples: (prefix, nexthop)
-            
-            # Check persistent routes
-            for r in persistent_routes:
-                prefix = r.get("DestinationPrefix")
-                nh = r.get("NextHop")
-                if not prefix or prefix == "0.0.0.0/0":
-                    continue
-                if prefix in all_managed_subnets:
-                    if prefix not in subnets or not gateways_equal(nh, gateway):
-                        routes_to_remove.append((prefix, nh))
-
-            # Check active routes
-            for r in active_routes:
-                prefix = r.get("DestinationPrefix")
-                nh = r.get("NextHop")
-                if not prefix or prefix == "0.0.0.0/0":
-                    continue
-                if prefix in all_managed_subnets:
-                    if prefix not in subnets or not gateways_equal(nh, gateway):
-                        routes_to_remove.append((prefix, nh))
-
-            # Deduplicate routes to remove
-            routes_to_remove = list(set(routes_to_remove))
-
-            # 7. Remove the identified mismatching/obsolete routes globally
-            for prefix, nh in routes_to_remove:
-                gw_param = f"-NextHop '{nh}'" if (nh and nh not in ("0.0.0.0", "none", "on-link")) else ""
-                
-                rm_active = [
-                    "powershell", "-Command",
-                    f"Remove-NetRoute -DestinationPrefix '{prefix}' {gw_param} -Confirm:$false -ErrorAction SilentlyContinue"
-                ]
-                subprocess.run(rm_active, capture_output=True, creationflags=self.creationflags)
-                
-                rm_pers = [
-                    "powershell", "-Command",
-                    f"Remove-NetRoute -DestinationPrefix '{prefix}' {gw_param} -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue"
-                ]
-                subprocess.run(rm_pers, capture_output=True, creationflags=self.creationflags)
-
-            # Remove default route (0.0.0.0/0) if not in the target subnets list,
-            # to prevent overriding the main internet (Wi-Fi) default route.
+            # 3. Determine if default route is requested
             has_default = False
             for s in subnets:
                 try:
@@ -316,93 +304,102 @@ class NetworkManager:
                     if s == "default" or s == "0.0.0.0":
                         has_default = True
                         break
-            
-            if not has_default:
-                # Remove active default route on this adapter
-                rm_default_cmd = [
-                    "powershell",
-                    "-Command",
-                    f"Remove-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceAlias '{selected_adapter}' -Confirm:$false -ErrorAction SilentlyContinue"
-                ]
-                subprocess.run(rm_default_cmd, capture_output=True, creationflags=self.creationflags)
-                
-                # Remove persistent default route on this adapter if any
-                rm_pers_cmd = [
-                    "powershell",
-                    "-Command",
-                    f"Remove-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceAlias '{selected_adapter}' -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue"
-                ]
-                subprocess.run(rm_pers_cmd, capture_output=True, creationflags=self.creationflags)
 
             # Configure the interface metric dynamically based on whether it should host a default route.
-            # If not (has_default is False), we set a high metric (1200) so that other active interfaces (like Wi-Fi)
-            # are preferred for internet traffic, even if a default route is dynamically added later by DHCP.
-            # If yes (has_default is True), we set a low metric (10) to prioritize this adapter.
             metric = 10 if has_default else 1200
-            metric_cmd = [
-                "powershell",
-                "-Command",
-                f"Set-NetIPInterface -InterfaceAlias '{selected_adapter}' -AddressFamily IPv4 -InterfaceMetric {metric} -Confirm:$false -ErrorAction SilentlyContinue"
-            ]
-            subprocess.run(metric_cmd, capture_output=True, creationflags=self.creationflags)
 
-            # 2. Add static routes for each configured subnet (both active and persistently)
-            for subnet in subnets:
-                # Remove existing route first from active and persistent stores
-                rm_cmd = [
-                    "powershell",
-                    "-Command",
-                    f"Remove-NetRoute -DestinationPrefix '{subnet}' -InterfaceAlias '{selected_adapter}' -Confirm:$false -ErrorAction SilentlyContinue"
-                ]
-                subprocess.run(rm_cmd, capture_output=True, creationflags=self.creationflags)
+            # 4. Build single batched PowerShell script to execute all route updates
+            subnets_ps = ", ".join(f"'{s.strip()}'" for s in subnets if s.strip())
+            all_managed_ps = ", ".join(f"'{s}'" for s in all_managed_subnets)
+            has_default_val = "true" if has_default else "false"
+            
+            ps_script = (
+                f"$adapter = '{selected_adapter}'\n"
+                f"$gateway = '{gateway or ''}'\n"
+                f"$metric = {metric}\n"
+                f"$subnets = @({subnets_ps})\n"
+                f"$all_managed = @({all_managed_ps})\n"
+                f"$has_default = ${has_default_val}\n"
                 
-                rm_pers_cmd = [
-                    "powershell",
-                    "-Command",
-                    f"Remove-NetRoute -DestinationPrefix '{subnet}' -InterfaceAlias '{selected_adapter}' -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue"
-                ]
-                subprocess.run(rm_pers_cmd, capture_output=True, creationflags=self.creationflags)
+                # 1. Remove default route if not requested
+                "if (-not $has_default) {\n"
+                "  Remove-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceAlias $adapter -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "  Remove-NetRoute -DestinationPrefix '0.0.0.0/0' -InterfaceAlias $adapter -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "}\n"
+                
+                # 2. Set interface metric
+                "Set-NetIPInterface -InterfaceAlias $adapter -AddressFamily IPv4 -InterfaceMetric $metric -Confirm:$false -ErrorAction SilentlyContinue\n"
+                
+                # 3. Clean up mismatching/obsolete routes from persistent store
+                "$pers = Get-NetRoute -PolicyStore PersistentStore -ErrorAction SilentlyContinue\n"
+                "foreach ($r in $pers) {\n"
+                "  $prefix = $r.DestinationPrefix; $nh = $r.NextHop\n"
+                "  if ($prefix -eq '0.0.0.0/0' -or -not $prefix) { continue }\n"
+                "  if ($prefix -in $all_managed) {\n"
+                "    $gw_equal = ($nh -eq $gateway) -or (($nh -in @('0.0.0.0', 'none', 'on-link', $null)) -and ($gateway -in @('0.0.0.0', 'none', 'on-link', '', $null)))\n"
+                "    if ($prefix -notin $subnets -or -not $gw_equal) {\n"
+                "      if ($nh -and $nh -notin @('0.0.0.0', 'none', 'on-link')) {\n"
+                "        Remove-NetRoute -DestinationPrefix $prefix -NextHop $nh -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "      } else {\n"
+                "        Remove-NetRoute -DestinationPrefix $prefix -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "      }\n"
+                "    }\n"
+                "  }\n"
+                "}\n"
+                
+                # 4. Clean up mismatching/obsolete routes from active store
+                "$act = Get-NetRoute -Protocol Netmgmt -ErrorAction SilentlyContinue\n"
+                "foreach ($r in $act) {\n"
+                "  $prefix = $r.DestinationPrefix; $nh = $r.NextHop\n"
+                "  if ($prefix -eq '0.0.0.0/0' -or -not $prefix) { continue }\n"
+                "  if ($prefix -in $all_managed) {\n"
+                "    $gw_equal = ($nh -eq $gateway) -or (($nh -in @('0.0.0.0', 'none', 'on-link', $null)) -and ($gateway -in @('0.0.0.0', 'none', 'on-link', '', $null)))\n"
+                "    if ($prefix -notin $subnets -or -not $gw_equal) {\n"
+                "      if ($nh -and $nh -notin @('0.0.0.0', 'none', 'on-link')) {\n"
+                "        Remove-NetRoute -DestinationPrefix $prefix -NextHop $nh -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "      } else {\n"
+                "        Remove-NetRoute -DestinationPrefix $prefix -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "      }\n"
+                "    }\n"
+                "  }\n"
+                "}\n"
+                
+                # 5. Add static routes for each requested subnet (both active and persistently)
+                "foreach ($subnet in $subnets) {\n"
+                "  Remove-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "  Remove-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "  if ($gateway) {\n"
+                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -NextHop $gateway -RouteMetric 5 -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -NextHop $gateway -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "  } else {\n"
+                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -RouteMetric 5 -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "  }\n"
+                "}\n"
+            )
 
-                # Add new route with low metric (5)
-                # If gateway is known, use NextHop. Otherwise, route on-link.
-                if gateway:
-                    add_cmd = [
-                        "powershell",
-                        "-Command",
-                        f"New-NetRoute -DestinationPrefix '{subnet}' -InterfaceAlias '{selected_adapter}' -NextHop '{gateway}' -RouteMetric 5 -Confirm:$false"
-                    ]
-                    add_pers_cmd = [
-                        "powershell",
-                        "-Command",
-                        f"New-NetRoute -DestinationPrefix '{subnet}' -InterfaceAlias '{selected_adapter}' -NextHop '{gateway}' -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false"
-                    ]
-                else:
-                    add_cmd = [
-                        "powershell",
-                        "-Command",
-                        f"New-NetRoute -DestinationPrefix '{subnet}' -InterfaceAlias '{selected_adapter}' -RouteMetric 5 -Confirm:$false"
-                    ]
-                    add_pers_cmd = [
-                        "powershell",
-                        "-Command",
-                        f"New-NetRoute -DestinationPrefix '{subnet}' -InterfaceAlias '{selected_adapter}' -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false"
-                    ]
+            import os
+            temp_file = f"temp_route_{int(time.time())}.ps1"
+            try:
+                with open(temp_file, "w") as f_out:
+                    f_out.write(ps_script)
                 
-                res = subprocess.run(add_cmd, capture_output=True, text=True, creationflags=self.creationflags)
-                if res.returncode != 0:
-                    err_msg = res.stderr.strip()
-                    if "already exists" in err_msg.lower() or "msft_netroute" in err_msg.lower():
-                        pass
-                    else:
-                        return False, f"Failed to add active route for {subnet}: {err_msg}"
+                cmd_run = ["powershell", "-ExecutionPolicy", "Bypass", "-File", temp_file]
+                res_run = subprocess.run(cmd_run, capture_output=True, text=True, creationflags=self.creationflags)
                 
-                res_pers = subprocess.run(add_pers_cmd, capture_output=True, text=True, creationflags=self.creationflags)
-                if res_pers.returncode != 0:
-                    err_msg = res_pers.stderr.strip()
-                    if "already exists" in err_msg.lower() or "msft_netroute" in err_msg.lower():
+                # Cleanup file
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                
+                if res_run.returncode != 0:
+                    return False, f"Failed to apply routing: {res_run.stderr.strip()}"
+            except Exception as e:
+                if os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except Exception:
                         pass
-                    else:
-                        return False, f"Failed to add persistent route for {subnet}: {err_msg}"
+                return False, f"Exception creating/running temporary route script: {str(e)}"
 
             inferred_note = f" (Warning: gateway {gateway} was inferred — verify this is correct)" if gateway_inferred else ""
             return True, f"Routing successfully updated via {selected_adapter} (Gateway: {gateway or 'On-link'}).{inferred_note}"

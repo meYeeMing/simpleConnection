@@ -17,14 +17,55 @@
     "pressed_green": "#206a2e",
     "treeview_bg": "#ffffff",
     "treeview_fieldbg": "#ffffff",
-    "treeview_selected_bg": "#dee2e6"
+    "treeview_selected_bg": "#dee2e6",
+    "warning_fg": "#d00f0f",
+    "about_title_fg": "#cc9941",
+    "about_author_fg": "#0f4c81",
+    "listbox_bg": "#ffffff",
+    "listbox_fg": "#212529"
   },
   "fonts": {
-    "default": ["Segoe UI", 10],
-    "default_bold": ["Segoe UI", 10, "bold"],
-    "heading": ["Segoe UI", 16, "bold"],
-    "subheading": ["Segoe UI", 12, "bold"],
-    "small": ["Segoe UI", 9],
-    "small_bold": ["Segoe UI", 9, "bold"]
+    "default": [
+      "Aptos",
+      12
+    ],
+    "treeview_text": [
+      "Aptos Narrow",
+      11
+    ],
+    "treeview_header": [
+      "Aptos SemiBold",
+      11,
+      "bold"
+    ],
+    "default_bold": [
+      "Aptos Black",
+      12,
+      "bold"
+    ],
+    "heading": [
+      "Aptos ExtraBold",
+      18,
+      "bold"
+    ],
+    "subheading": [
+      "Aptos Serif",
+      16,
+      "bold"
+    ],
+    "small": [
+      "Aptos Mono",
+      8
+    ],
+    "small_bold": [
+      "Aptos Mono",
+      9,
+      "bold"
+    ],
+    "about_title": [
+      "Copperplate Gothic Bold",
+      18,
+      "bold"
+    ]
   }
 }

@@ -109,7 +109,7 @@ def build_app():
 
         print(f"Executable directory can be found at: {os.path.abspath(DISTPATH)}")
         print(
-            f"Executable file: {os.path.join(os.path.abspath(DISTPATH), 'SimpleConnection.exe')}"
+            f"Executable file: {os.path.join(os.path.abspath(DISTPATH), 'Simply2Connection.exe')}"
         )
         end_time = time.perf_counter()
         print(f"Build completed in {end_time - start_time:.2f} seconds.")

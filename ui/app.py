@@ -7,7 +7,7 @@ import time
 from core.config import config
 from core.network_manager import NetworkManager
 from core.utils import get_resource_path
-from ui.styles import configure_styles
+from ui.styles import configure_styles, load_style_config
 from ui.loading_dialog import LoadingDialog
 from ui.about_dialog import AboutDialog
 
@@ -39,15 +39,22 @@ class App:
         self.style.theme_use("clam")
         configure_styles(self.root, self.style)
 
+        # Load style config
+        self.style_cfg = load_style_config()
+        self.colors = self.style_cfg["colors"]
+        self.fonts = self.style_cfg["fonts"]
+
         # Main Layout: Sidebar & Content Area
-        self.main_container = tk.Frame(self.root, bg="#f8f9fa")
+        self.main_container = tk.Frame(self.root, bg=self.colors["background"])
         self.main_container.pack(fill=tk.BOTH, expand=True)
 
-        self.sidebar = tk.Frame(self.main_container, width=120, bg="#e9ecef")
+        self.sidebar = tk.Frame(
+            self.main_container, width=120, bg=self.colors["sidebar_bg"]
+        )
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar.pack_propagate(False)
 
-        self.content_area = tk.Frame(self.main_container, bg="#f8f9fa")
+        self.content_area = tk.Frame(self.main_container, bg=self.colors["background"])
         self.content_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Active view tracking
@@ -64,9 +71,9 @@ class App:
         title_label = tk.Label(
             self.sidebar,
             text=f"MENU",
-            fg="#0066cc",
-            bg="#e9ecef",
-            font=("Segoe UI", 12, "bold"),
+            fg=self.colors["heading_fg"],
+            bg=self.colors["sidebar_bg"],
+            font=tuple(self.fonts["subheading"]),
         )
         title_label.pack(pady=20)
 
@@ -97,9 +104,9 @@ class App:
         admin_lbl = tk.Label(
             self.sidebar,
             text="ADMIN PRIVILEGES",
-            fg="#2b8a3e",
-            bg="#e9ecef",
-            font=("Segoe UI", 8, "bold"),
+            fg=self.colors["active_green"],
+            bg=self.colors["sidebar_bg"],
+            font=tuple(self.fonts["small_bold"]),
         )
         admin_lbl.pack(side=tk.BOTTOM, pady=10)
 
@@ -109,7 +116,7 @@ class App:
         if self.current_frame:
             self.current_frame.destroy()
         self.current_frame = ttk.Frame(self.content_area)
-        self.current_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        self.current_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=10)
 
     # ==================== VIEW 1: MAIN (CONNECTION & MAPPINGS) ====================
     def show_main(self):
@@ -121,17 +128,17 @@ class App:
             text="Profiles & Mappings",
             style="Heading.TLabel",
         )
-        header.pack(anchor=tk.W, pady=(0, 15))
+        header.pack(anchor=tk.W, pady=(0, 10))
 
         # Horizontal Row Container for Profile Selection and Details Panel
         profile_row = ttk.Frame(self.current_frame)
-        profile_row.pack(fill=tk.X, pady=(0, 10))
+        profile_row.pack(fill=tk.X, pady=(0, 8))
         profile_row.columnconfigure(0, weight=1, uniform="profile_cols")
         profile_row.columnconfigure(1, weight=1, uniform="profile_cols")
 
         # 1. Select Connection Profile Frame (Left)
         profile_frame = ttk.LabelFrame(
-            profile_row, text="1. Select Connection Profile", padding=15
+            profile_row, text="1. Select Connection Profile", padding=10
         )
         profile_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
@@ -141,7 +148,7 @@ class App:
         # Treeview to display connection profiles
         columns_prof = ("name", "gateway")
         self.tree_profiles = ttk.Treeview(
-            profile_frame, columns=columns_prof, show="headings", height=4
+            profile_frame, columns=columns_prof, show="headings", height=3
         )
         self.tree_profiles.heading("name", text="Profile Name")
         self.tree_profiles.heading("gateway", text="Gateway IP")
@@ -183,7 +190,7 @@ class App:
 
         # Connection Profile Info Panel (Right)
         self.info_frame = ttk.LabelFrame(
-            profile_row, text="Connection Profile Info", padding=15
+            profile_row, text="Connection Profile Info", padding=10
         )
         self.info_frame.grid(row=0, column=1, sticky="nsew")
 
@@ -211,36 +218,38 @@ class App:
 
         # 2. Adapter Mapping & Connection Section (dynamically shown/hidden)
         self.mapping_container_frame = ttk.Frame(self.current_frame)
-        self.mapping_container_frame.pack(fill=tk.X, pady=5)
+        self.mapping_container_frame.pack(fill=tk.X, pady=2)
 
         self.mapping_placeholder = ttk.Label(
             self.mapping_container_frame,
             text="Select a profile above to configure its adapter mapping...",
-            font=("Segoe UI", 10, "italic"),
-            foreground="#868e96",
+            font=(self.fonts["default"][0], 10, "italic"),
+            foreground=self.colors["subheading_fg"],
         )
-        self.mapping_placeholder.pack(fill=tk.BOTH, expand=True, pady=10)
+        self.mapping_placeholder.pack(fill=tk.BOTH, expand=True, pady=5)
 
         # Create mapping_frame inside mapping_container_frame but don't pack it yet
         self.mapping_frame = ttk.LabelFrame(
             self.mapping_container_frame,
             text="2. Configure Adapter Mapping",
-            padding=15,
+            padding=10,
         )
 
         self.lbl_selected_profile_name = ttk.Label(
             self.mapping_frame,
             text="Selected Profile: None",
-            font=("Segoe UI", 11, "bold"),
-            foreground="#0066cc",
+            font=tuple(self.fonts["default_bold"]),
+            foreground=self.colors["primary"],
         )
-        self.lbl_selected_profile_name.pack(anchor=tk.W, pady=(0, 10))
+        self.lbl_selected_profile_name.pack(anchor=tk.W, pady=(0, 5))
 
         cbo_container = ttk.Frame(self.mapping_frame)
-        cbo_container.pack(fill=tk.X, pady=5)
+        cbo_container.pack(fill=tk.X, pady=2)
 
         ttk.Label(
-            cbo_container, text="Map to Adapter:", font=("Segoe UI", 10, "bold")
+            cbo_container,
+            text="Map to Adapter:",
+            font=tuple(self.fonts["default_bold"]),
         ).pack(side=tk.LEFT, padx=(0, 10))
 
         self.sys_adapters = []
@@ -262,9 +271,9 @@ class App:
 
         # 3. Adapter Status Grid
         status_frame = ttk.LabelFrame(
-            self.current_frame, text="Current Adapters IP Status", padding=15
+            self.current_frame, text="Current Adapters IP Status", padding=10
         )
-        status_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        status_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
         columns = ("alias", "status", "ip", "gateway", "description")
 
@@ -272,7 +281,7 @@ class App:
         table_container.pack(fill=tk.BOTH, expand=True)
 
         self.tree_adapters = ttk.Treeview(
-            table_container, columns=columns, show="headings", height=5
+            table_container, columns=columns, show="headings", height=4
         )
         self.tree_adapters.heading("alias", text="Adapter Name")
         self.tree_adapters.heading("status", text="Status")
@@ -298,7 +307,7 @@ class App:
         btn_refresh = ttk.Button(
             status_frame, text="Refresh Status", command=self.refresh_adapter_table
         )
-        btn_refresh.pack(anchor=tk.E, pady=(10, 0))
+        btn_refresh.pack(anchor=tk.E, pady=(5, 0))
 
         # Start loading data in the background
         self.refresh_adapter_table()
@@ -415,7 +424,7 @@ class App:
                 self.mapping_placeholder.pack(fill=tk.BOTH, expand=True, pady=10)
             self.lbl_info_title.config(
                 text="Select a profile to view details...",
-                font=("Segoe UI", 10, "italic"),
+                font=(self.fonts["default"][0], 10, "italic"),
             )
             self.lbl_info_mode.config(text="Mode: -")
             self.lbl_info_ip.config(text="IP Address: -")
@@ -445,7 +454,7 @@ class App:
 
         # Update profile details on the right panel
         self.lbl_info_title.config(
-            text=f"Profile: {name}", font=("Segoe UI", 11, "bold")
+            text=f"Profile: {name}", font=tuple(self.fonts["default_bold"])
         )
 
         is_dhcp = prof_data.get("dhcp", False)
@@ -615,7 +624,7 @@ class App:
         ttk.Label(
             selector_frame,
             text="Select Profile to Edit/Delete:",
-            font=("Segoe UI", 10, "bold"),
+            font=tuple(self.fonts["default_bold"]),
         ).pack(side=tk.LEFT, padx=(0, 10))
 
         self.cbo_profile_select = ttk.Combobox(
@@ -649,7 +658,9 @@ class App:
         ttk.Label(self.left_editor_frame, text="Profile Name:").pack(
             anchor=tk.W, pady=(5, 2)
         )
-        self.ent_profile_name = ttk.Entry(self.left_editor_frame, font=("Segoe UI", 10))
+        self.ent_profile_name = ttk.Entry(
+            self.left_editor_frame, font=tuple(self.fonts["default"])
+        )
         self.ent_profile_name.pack(fill=tk.X, pady=(0, 10))
 
         # Mode Selection
@@ -681,17 +692,23 @@ class App:
         # IP Input fields
         self.lbl_ip = ttk.Label(self.left_editor_frame, text="Static IP Address:")
         self.lbl_ip.pack(anchor=tk.W, pady=(5, 2))
-        self.ent_ip = ttk.Entry(self.left_editor_frame, font=("Segoe UI", 10))
+        self.ent_ip = ttk.Entry(
+            self.left_editor_frame, font=tuple(self.fonts["default"])
+        )
         self.ent_ip.pack(fill=tk.X, pady=(0, 10))
 
         self.lbl_mask = ttk.Label(self.left_editor_frame, text="Subnet Mask:")
         self.lbl_mask.pack(anchor=tk.W, pady=(5, 2))
-        self.ent_mask = ttk.Entry(self.left_editor_frame, font=("Segoe UI", 10))
+        self.ent_mask = ttk.Entry(
+            self.left_editor_frame, font=tuple(self.fonts["default"])
+        )
         self.ent_mask.pack(fill=tk.X, pady=(0, 10))
 
         self.lbl_gateway = ttk.Label(self.left_editor_frame, text="Gateway:")
         self.lbl_gateway.pack(anchor=tk.W, pady=(5, 2))
-        self.ent_gateway = ttk.Entry(self.left_editor_frame, font=("Segoe UI", 10))
+        self.ent_gateway = ttk.Entry(
+            self.left_editor_frame, font=tuple(self.fonts["default"])
+        )
         self.ent_gateway.pack(fill=tk.X, pady=(0, 10))
 
         # Mapped Adapter Selection
@@ -703,7 +720,7 @@ class App:
             self.left_editor_frame,
             values=adapters,
             state="readonly",
-            font=("Segoe UI", 10),
+            font=tuple(self.fonts["default"]),
         )
         self.cbo_profile_adapter.pack(fill=tk.X, pady=(0, 15))
 
@@ -719,11 +736,11 @@ class App:
 
         self.list_subnets = tk.Listbox(
             list_container,
-            bg="#ffffff",
-            fg="#212529",
-            font=("Segoe UI", 10),
-            selectbackground="#0066cc",
-            selectforeground="#ffffff",
+            bg=self.colors["listbox_bg"],
+            fg=self.colors["listbox_fg"],
+            font=tuple(self.fonts["default"]),
+            selectbackground=self.colors["primary"],
+            selectforeground=self.colors["primary_fg"],
             borderwidth=1,
             highlightthickness=0,
         )
@@ -740,7 +757,7 @@ class App:
         add_sub_frame = ttk.Frame(route_frame)
         add_sub_frame.pack(fill=tk.X)
 
-        self.ent_subnet = ttk.Entry(add_sub_frame, font=("Segoe UI", 10))
+        self.ent_subnet = ttk.Entry(add_sub_frame, font=tuple(self.fonts["default"]))
         self.ent_subnet.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 
         btn_add = ttk.Button(

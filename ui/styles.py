@@ -2,6 +2,7 @@ import os
 import json
 import tkinter as tk
 
+
 def load_style_config():
     """
     Loads styling parameters from style_config.json.
@@ -11,6 +12,7 @@ def load_style_config():
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def configure_styles(root: tk.Tk, style_obj):
     """
     Sets background colors and styles for standard/ttk widgets.
@@ -18,21 +20,30 @@ def configure_styles(root: tk.Tk, style_obj):
     config = load_style_config()
     colors = config["colors"]
     fonts = config["fonts"]
-    
+
     # Root Window Styling
     root.configure(bg=colors["background"])
-    
+
     # Base TTK styles
-    style_obj.configure(".", background=colors["background"], foreground=colors["foreground"])
+    style_obj.configure(
+        ".", background=colors["background"], foreground=colors["foreground"]
+    )
     style_obj.configure("TFrame", background=colors["background"])
-    
-    # Entry Widget Styling (turns disabled entry backgrounds to grey)
+
+    # Entry Widget Styling
+    style_obj.configure("TEntry", font=tuple(fonts["default"]))
     style_obj.map(
         "TEntry",
-        fieldbackground=[("disabled", "#e9ecef")],
-        foreground=[("disabled", "#868e96")]
+        fieldbackground=[("disabled", colors["sidebar_bg"])],
+        foreground=[("disabled", colors["subheading_fg"])],
     )
-    
+
+    # Combobox & Radiobutton Widget Styling
+    style_obj.configure("TCombobox", font=tuple(fonts["default"]))
+    style_obj.configure(
+        "TRadiobutton", font=tuple(fonts["default"]), background=colors["background"]
+    )
+
     # Sidebar Styling
     style_obj.configure("Sidebar.TFrame", background=colors["sidebar_bg"])
     style_obj.configure(
@@ -45,7 +56,10 @@ def configure_styles(root: tk.Tk, style_obj):
     )
     style_obj.map(
         "Sidebar.TButton",
-        background=[("active", colors["sidebar_btn_active_bg"]), ("pressed", colors["sidebar_btn_pressed_bg"])],
+        background=[
+            ("active", colors["sidebar_btn_active_bg"]),
+            ("pressed", colors["sidebar_btn_pressed_bg"]),
+        ],
         foreground=[("active", colors["sidebar_btn_active_fg"])],
     )
 
@@ -66,10 +80,10 @@ def configure_styles(root: tk.Tk, style_obj):
 
     # Standard Label & Button Styling
     style_obj.configure(
-        "TLabel", 
-        background=colors["background"], 
-        foreground=colors["foreground"], 
-        font=tuple(fonts["default"])
+        "TLabel",
+        background=colors["background"],
+        foreground=colors["foreground"],
+        font=tuple(fonts["default"]),
     )
     style_obj.configure(
         "Action.TButton",
@@ -79,8 +93,11 @@ def configure_styles(root: tk.Tk, style_obj):
         borderwidth=0,
     )
     style_obj.map(
-        "Action.TButton", 
-        background=[("active", colors["active_green"]), ("pressed", colors["pressed_green"])]
+        "Action.TButton",
+        background=[
+            ("active", colors["active_green"]),
+            ("pressed", colors["pressed_green"]),
+        ],
     )
 
     # Treeview (Tables)
@@ -89,13 +106,13 @@ def configure_styles(root: tk.Tk, style_obj):
         background=colors["treeview_bg"],
         fieldbackground=colors["treeview_fieldbg"],
         foreground=colors["foreground"],
-        font=tuple(fonts["small"]),
+        font=tuple(fonts["treeview_text"]),
     )
     style_obj.configure(
         "Treeview.Heading",
         background=colors["sidebar_bg"],
         foreground=colors["primary"],
-        font=tuple(fonts["small_bold"]),
+        font=tuple(fonts["treeview_header"]),
     )
     style_obj.map(
         "Treeview",
