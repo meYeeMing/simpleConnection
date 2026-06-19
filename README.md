@@ -12,7 +12,7 @@ When connecting to various network devices, it's common to need different adapte
 - **DHCP** assignment for plug-and-play devices like SIM card routers or USB dongles
 - Specific **static routes** to ensure traffic for target subnets goes through the right adapter rather than the default internet gateway
 
-RouteConfigurator automates all of this with a single click.
+SimpleConnection automates all of this with a single click.
 
 ---
 
@@ -34,7 +34,7 @@ simpleConnection/
 ├── main.py                  # Entrypoint — requests admin privileges, launches App
 ├── get_route.py             # RouteService: reads system routing table
 ├── requirements.txt         # Python dependencies
-├── build_win.py             # PyInstaller build script → dist_win/RouteConfigurator/
+├── build_win.py             # PyInstaller build script → dist_win/SimpleConnection/
 ├── config.yaml              # Persistent user configuration
 ├── README.md                # README
 │
@@ -57,17 +57,15 @@ simpleConnection/
 The configuration file (`config.yaml` located in the root folder or next to the executable) stores all connection profiles and is automatically updated on every change.
 
 ```yaml
-10.10.30.1:router:
+192.168.1.1:direct-wired:
   AdapterName: Ethernet
-  Ip: 10.10.30.191
-  IpGateway: 10.10.30.1
+  Ip: 192.168.1.99
+  IpGateway: 192.168.1.1
   dhcp: false
   mask: 255.255.255.0
   route-list:
-  - 10.10.30.0/24
-  - 10.10.40.0/24
-  - 10.10.80.0/24
-  - 10.10.94.0/24
+  - 192.168.0.0/24
+  - 10.10.10.0/23
 
 auto:
   AdapterName: Ethernet 2
@@ -76,7 +74,7 @@ auto:
   dhcp: true
   mask: ''
   route-list:
-  - 192.186.82.0/23
+
 ```
 
 > **Note:** When you change the static IP or subnet mask in Settings, the corresponding subnet CIDR in `route-list` is automatically recalculated and updated.
@@ -151,12 +149,12 @@ When you click **Connect / Apply Settings**, the tool:
 
 ```powershell
 # Clone the repo
-git clone <repo-url>
-cd simpleIPConfig
+git clone https://github.com/h1234a/simpleConnection.git
+cd simpleConnection
 
 # Create and activate virtual environment
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+.\venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -169,13 +167,13 @@ python main.py
 
 ## Building a Standalone Executable
 
-The `build_win.py` script compiles the app to a self-contained `dist_win/RouteConfigurator/` directory using PyInstaller:
+The `build_win.py` script compiles the app to a self-contained `dist_win/SimpleConnection/` directory using PyInstaller:
 
 ```powershell
 python build_win.py
 ```
 
-The output directory `dist_win/RouteConfigurator/` (or the standalone single-file `dist_win/RouteConfigurator.exe` if built with `--onefile`) can be deployed as-is. The `config.yaml` file next to the executable is user-editable and persists settings across runs.
+The output directory `dist_win/SimpleConnection/` (or the standalone single-file `dist_win/SimpleConnection.exe` if built with `--onefile`) can be deployed as-is. The `config.yaml` file next to the executable is user-editable and persists settings across runs.
 
 > **Important:** Close the application before running a new build, otherwise PyInstaller may fail with a permission error on the existing executable.
 
