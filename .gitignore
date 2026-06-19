@@ -3,3 +3,5 @@ dist_win/
 dist/
 __pycache__/
 build/
+config.yaml
+RouteConfigurator.exe

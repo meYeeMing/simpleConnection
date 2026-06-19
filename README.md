@@ -1,4 +1,4 @@
-# RouteConfigurator
+# simple Connection
 
 A Windows desktop tool for managing network adapter IP configuration and static routing profiles. Designed for environments where a single machine connects to multiple networks (e.g. a direct-wired router, a SIM card router, and a USB dongle) and needs to quickly switch between them with the correct IP settings and subnet routes.
 
