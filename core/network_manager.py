@@ -154,6 +154,15 @@ class NetworkManager:
                                 except FileNotFoundError:
                                     pass
                             
+                            # Try DhcpServer as last resort gateway fallback
+                            if gateway == "None" or gateway == "0.0.0.0":
+                                try:
+                                    reg_srv, _ = winreg.QueryValueEx(key, "DhcpServer")
+                                    if reg_srv and reg_srv != "0.0.0.0" and reg_srv != "255.255.255.255":
+                                        gateway = reg_srv
+                                except FileNotFoundError:
+                                    pass
+
                             winreg.CloseKey(key)
                         except Exception:
                             pass
@@ -249,13 +258,19 @@ class NetworkManager:
             gateway = configured_gateway
             gateway_inferred = False
             if not gateway:
-                # Poll every 0.5 seconds for up to 20 times (10 seconds total)
-                for _ in range(20):
+                fallback_gw = None
+                # Poll every 0.5 seconds for up to 60 times (30 seconds total)
+                for _ in range(60):
                     adapters = self.get_adapters()
                     for a in adapters:
                         if a["InterfaceAlias"] == selected_adapter:
                             ip = a["IPv4Address"]
                             g = a["IPv4DefaultGateway"]
+                            
+                            # Keep track of any non-empty gateway we see, even if IP is not fully ready
+                            if g and g != "0.0.0.0" and g != "None":
+                                fallback_gw = g
+
                             # Only accept a gateway if we have a valid, non-APIPA IP and a default gateway
                             if ip and ip != "No IP Address" and not ip.startswith("169.254."):
                                 if g and g != "0.0.0.0" and g != "None":
@@ -265,7 +280,11 @@ class NetworkManager:
                         break
                     time.sleep(0.5)
 
-                # Fallback: if we still don't have a gateway but have a valid IP, infer gateway as x.y.z.1
+                # Fallback 1: use the fallback gateway we found during polling (even if IP was slow/not ready)
+                if not gateway and fallback_gw:
+                    gateway = fallback_gw
+
+                # Fallback 2: if we still don't have a gateway but have a valid IP, infer gateway as x.y.z.1
                 if not gateway:
                     adapters = self.get_adapters()
                     for a in adapters:
@@ -368,16 +387,29 @@ class NetworkManager:
                 "  }\n"
                 "}\n"
                 
-                # 5. Add static routes for each requested subnet (both active and persistently)
+                # 5. Add static routes for each requested subnet (both active and persistently) if not already correct
                 "foreach ($subnet in $subnets) {\n"
-                "  Remove-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -Confirm:$false -ErrorAction SilentlyContinue\n"
-                "  Remove-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
-                "  if ($gateway) {\n"
-                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -NextHop $gateway -RouteMetric 5 -Confirm:$false -ErrorAction SilentlyContinue\n"
-                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -NextHop $gateway -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
-                "  } else {\n"
-                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -RouteMetric 5 -Confirm:$false -ErrorAction SilentlyContinue\n"
-                "    New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "  $has_active = Get-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -ErrorAction SilentlyContinue | Where-Object {\n"
+                "    if ($gateway) { $_.NextHop -eq $gateway } else { $_.NextHop -in @('0.0.0.0', 'none', 'on-link', '', $null) }\n"
+                "  }\n"
+                "  if (@($has_active).Count -ne 1) {\n"
+                "    Remove-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    if ($gateway) {\n"
+                "      New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -NextHop $gateway -RouteMetric 5 -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    } else {\n"
+                "      New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -RouteMetric 5 -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    }\n"
+                "  }\n"
+                "  $has_pers = Get-NetRoute -DestinationPrefix $subnet -PolicyStore PersistentStore -ErrorAction SilentlyContinue | Where-Object {\n"
+                "    if ($gateway) { $_.NextHop -eq $gateway } else { $_.NextHop -in @('0.0.0.0', 'none', 'on-link', '', $null) }\n"
+                "  }\n"
+                "  if (@($has_pers).Count -ne 1) {\n"
+                "    Remove-NetRoute -DestinationPrefix $subnet -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    if ($gateway) {\n"
+                "      New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -NextHop $gateway -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    } else {\n"
+                "      New-NetRoute -DestinationPrefix $subnet -InterfaceAlias $adapter -RouteMetric 5 -PolicyStore PersistentStore -Confirm:$false -ErrorAction SilentlyContinue\n"
+                "    }\n"
                 "  }\n"
                 "}\n"
             )

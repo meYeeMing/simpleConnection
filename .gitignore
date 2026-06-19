@@ -5,3 +5,4 @@ __pycache__/
 build/
 config.yaml
 *.ps1
+*.spec
