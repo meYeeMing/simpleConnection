@@ -6,23 +6,29 @@ import time
 
 from core.config import config
 from core.network_manager import NetworkManager
+from core.utils import get_resource_path
 from ui.styles import configure_styles
 from ui.loading_dialog import LoadingDialog
-
-# Constant: display names for each connection profile key
-PROFILE_DISPLAY_NAMES = {
-    "router": "Router",
-    "sim-card-router": "Sim Card Router",
-    "dongle": "Dongle",
-}
+from ui.about_dialog import AboutDialog
 
 
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Network Route & IP Configurator")
+        self.root.title("Simply2Connection")
         self.root.geometry("900x700")
-        self.root.minsize(800, 600)
+        self.root.resizable(False, False)
+
+        # Set window icon
+        icon_path = get_resource_path("ui/statics/simpleconnection.png")
+        try:
+            from PIL import Image, ImageTk
+
+            img = Image.open(icon_path)
+            self.app_icon = ImageTk.PhotoImage(img)
+            self.root.iconphoto(True, self.app_icon)
+        except Exception as e:
+            print(f"Error loading main window icon: {e}")
 
         # Initialize configurations and managers
         self.config = config()
@@ -57,7 +63,7 @@ class App:
         # Sidebar Title
         title_label = tk.Label(
             self.sidebar,
-            text=f"Router \n Configurator",
+            text=f"MENU",
             fg="#0066cc",
             bg="#e9ecef",
             font=("Segoe UI", 12, "bold"),
@@ -80,14 +86,14 @@ class App:
             command=self.show_settings,
         )
         btn_settings.pack(fill=tk.X, padx=10, pady=8)
-        creator_lbl = tk.Label(
+
+        btn_about = ttk.Button(
             self.sidebar,
-            text="Created by Simply",
-            fg="#0e41b0",
-            bg="#e9ecef",
-            font=("Segoe UI", 8, "bold"),
+            text="About",
+            style="Sidebar.TButton",
+            command=self.show_about,
         )
-        creator_lbl.pack(side=tk.BOTTOM, pady=10)
+        btn_about.pack(fill=tk.X, padx=10, pady=8)
         admin_lbl = tk.Label(
             self.sidebar,
             text="ADMIN PRIVILEGES",
@@ -112,7 +118,7 @@ class App:
         # Title
         header = ttk.Label(
             self.current_frame,
-            text="Main: Connection Profiles & Mappings",
+            text="Profiles & Mappings",
             style="Heading.TLabel",
         )
         header.pack(anchor=tk.W, pady=(0, 15))
@@ -120,12 +126,14 @@ class App:
         # Horizontal Row Container for Profile Selection and Details Panel
         profile_row = ttk.Frame(self.current_frame)
         profile_row.pack(fill=tk.X, pady=(0, 10))
+        profile_row.columnconfigure(0, weight=1, uniform="profile_cols")
+        profile_row.columnconfigure(1, weight=1, uniform="profile_cols")
 
         # 1. Select Connection Profile Frame (Left)
         profile_frame = ttk.LabelFrame(
             profile_row, text="1. Select Connection Profile", padding=15
         )
-        profile_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        profile_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
         # Selection tracker for active profile (initially empty)
         self.selected_profile = tk.StringVar(value="")
@@ -137,14 +145,16 @@ class App:
         )
         self.tree_profiles.heading("name", text="Profile Name")
         self.tree_profiles.heading("gateway", text="Gateway IP")
-        
-        self.tree_profiles.column("name", width=200, anchor=tk.W, stretch=tk.NO)
-        self.tree_profiles.column("gateway", width=120, anchor=tk.CENTER, stretch=tk.NO)
-        
+
+        self.tree_profiles.column("name", width=180, anchor=tk.W, stretch=tk.NO)
+        self.tree_profiles.column("gateway", width=130, anchor=tk.CENTER, stretch=tk.NO)
+
         # Scrollbar for profile list
-        sb_profiles = ttk.Scrollbar(profile_frame, orient=tk.VERTICAL, command=self.tree_profiles.yview)
+        sb_profiles = ttk.Scrollbar(
+            profile_frame, orient=tk.VERTICAL, command=self.tree_profiles.yview
+        )
         self.tree_profiles.configure(yscrollcommand=sb_profiles.set)
-        
+
         self.tree_profiles.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb_profiles.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -156,7 +166,7 @@ class App:
             self.tree_profiles.insert(
                 "",
                 tk.END,
-                values=("No profiles found. Go to Settings to create one.", "")
+                values=("No profiles found. Go to Settings to create one.", ""),
             )
         else:
             for key, prof in profiles.items():
@@ -165,23 +175,22 @@ class App:
                 else:
                     name = key
                     gw = prof.get("IpGateway", "")
-                
+
                 gw_display = gw if gw else "Auto (DHCP)"
                 self.tree_profiles.insert(
-                    "",
-                    tk.END,
-                    iid=key,
-                    values=(name, gw_display)
+                    "", tk.END, iid=key, values=(name, gw_display)
                 )
 
         # Connection Profile Info Panel (Right)
         self.info_frame = ttk.LabelFrame(
             profile_row, text="Connection Profile Info", padding=15
         )
-        self.info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.info_frame.grid(row=0, column=1, sticky="nsew")
 
         self.lbl_info_title = ttk.Label(
-            self.info_frame, text="Select a profile to view details...", font=("Segoe UI", 10, "italic")
+            self.info_frame,
+            text="Select a profile to view details...",
+            font=("Segoe UI", 10, "italic"),
         )
         self.lbl_info_title.pack(anchor=tk.W, pady=(0, 5))
 
@@ -276,11 +285,13 @@ class App:
         self.tree_adapters.column("ip", width=120, anchor=tk.CENTER)
         self.tree_adapters.column("gateway", width=85, anchor=tk.CENTER)
         self.tree_adapters.column("description", width=250, anchor=tk.W)
-        
+
         # Scrollbar for adapter table
-        sb_adapters = ttk.Scrollbar(table_container, orient=tk.VERTICAL, command=self.tree_adapters.yview)
+        sb_adapters = ttk.Scrollbar(
+            table_container, orient=tk.VERTICAL, command=self.tree_adapters.yview
+        )
         self.tree_adapters.configure(yscrollcommand=sb_adapters.set)
-        
+
         self.tree_adapters.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb_adapters.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -293,7 +304,11 @@ class App:
         self.refresh_adapter_table()
 
     def refresh_adapter_table(self):
-        if not hasattr(self, "tree_adapters") or not self.tree_adapters or not self.tree_adapters.winfo_exists():
+        if (
+            not hasattr(self, "tree_adapters")
+            or not self.tree_adapters
+            or not self.tree_adapters.winfo_exists()
+        ):
             return
         # Clear table and insert loading message
         for item in self.tree_adapters.get_children():
@@ -309,7 +324,11 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def populate_adapter_table(self, adapters):
-        if not hasattr(self, "tree_adapters") or not self.tree_adapters or not self.tree_adapters.winfo_exists():
+        if (
+            not hasattr(self, "tree_adapters")
+            or not self.tree_adapters
+            or not self.tree_adapters.winfo_exists()
+        ):
             return
         for item in self.tree_adapters.get_children():
             self.tree_adapters.delete(item)
@@ -321,13 +340,21 @@ class App:
         self.sys_adapters_names.insert(0, "")
 
         # Enable and configure mapping combobox
-        if hasattr(self, "cbo_mapping") and self.cbo_mapping and self.cbo_mapping.winfo_exists():
+        if (
+            hasattr(self, "cbo_mapping")
+            and self.cbo_mapping
+            and self.cbo_mapping.winfo_exists()
+        ):
             self.cbo_mapping.config(state="readonly", values=self.sys_adapters_names)
 
         # Trigger profile refresh to load bindings
         self.on_profile_change()
 
-        if not hasattr(self, "tree_adapters") or not self.tree_adapters or not self.tree_adapters.winfo_exists():
+        if (
+            not hasattr(self, "tree_adapters")
+            or not self.tree_adapters
+            or not self.tree_adapters.winfo_exists()
+        ):
             return
 
         if not adapters:
@@ -337,7 +364,11 @@ class App:
             return
 
         for a in adapters:
-            if not hasattr(self, "tree_adapters") or not self.tree_adapters or not self.tree_adapters.winfo_exists():
+            if (
+                not hasattr(self, "tree_adapters")
+                or not self.tree_adapters
+                or not self.tree_adapters.winfo_exists()
+            ):
                 return
             self.tree_adapters.insert(
                 "",
@@ -352,7 +383,11 @@ class App:
             )
 
     def on_profile_select_tree(self, event=None):
-        if not hasattr(self, "tree_profiles") or not self.tree_profiles or not self.tree_profiles.winfo_exists():
+        if (
+            not hasattr(self, "tree_profiles")
+            or not self.tree_profiles
+            or not self.tree_profiles.winfo_exists()
+        ):
             return
         selected = self.tree_profiles.selection()
         if not selected:
@@ -362,25 +397,38 @@ class App:
         self.on_profile_change()
 
     def on_profile_change(self):
-        if not hasattr(self, "lbl_info_title") or not self.lbl_info_title or not self.lbl_info_title.winfo_exists():
+        if (
+            not hasattr(self, "lbl_info_title")
+            or not self.lbl_info_title
+            or not self.lbl_info_title.winfo_exists()
+        ):
             return
 
         profile_key = self.selected_profile.get()
         if not profile_key:
             if hasattr(self, "mapping_frame") and self.mapping_frame.winfo_exists():
                 self.mapping_frame.pack_forget()
-            if hasattr(self, "mapping_placeholder") and self.mapping_placeholder.winfo_exists():
+            if (
+                hasattr(self, "mapping_placeholder")
+                and self.mapping_placeholder.winfo_exists()
+            ):
                 self.mapping_placeholder.pack(fill=tk.BOTH, expand=True, pady=10)
-            self.lbl_info_title.config(text="Select a profile to view details...", font=("Segoe UI", 10, "italic"))
-            self.lbl_info_mode.config(text="")
-            self.lbl_info_ip.config(text="")
-            self.lbl_info_mask.config(text="")
-            self.lbl_info_gateway.config(text="")
-            self.lbl_info_cidr.config(text="")
+            self.lbl_info_title.config(
+                text="Select a profile to view details...",
+                font=("Segoe UI", 10, "italic"),
+            )
+            self.lbl_info_mode.config(text="Mode: -")
+            self.lbl_info_ip.config(text="IP Address: -")
+            self.lbl_info_mask.config(text="Subnet Mask: -")
+            self.lbl_info_gateway.config(text="Gateway: -")
+            self.lbl_info_cidr.config(text="Subnet CIDR: -")
             return
 
         # Hide placeholder
-        if hasattr(self, "mapping_placeholder") and self.mapping_placeholder.winfo_exists():
+        if (
+            hasattr(self, "mapping_placeholder")
+            and self.mapping_placeholder.winfo_exists()
+        ):
             self.mapping_placeholder.pack_forget()
 
         # Get profile data
@@ -396,27 +444,31 @@ class App:
             gw = prof_data.get("IpGateway", "")
 
         # Update profile details on the right panel
-        self.lbl_info_title.config(text=f"Profile: {name}", font=("Segoe UI", 11, "bold"))
-        
+        self.lbl_info_title.config(
+            text=f"Profile: {name}", font=("Segoe UI", 11, "bold")
+        )
+
         is_dhcp = prof_data.get("dhcp", False)
         if is_dhcp:
             self.lbl_info_mode.config(text="Mode: DHCP")
-            self.lbl_info_ip.config(text="")
-            self.lbl_info_mask.config(text="")
-            self.lbl_info_gateway.config(text="")
-            self.lbl_info_cidr.config(text="")
+            self.lbl_info_ip.config(text="IP Address: DHCP (Auto)")
+            self.lbl_info_mask.config(text="Subnet Mask: DHCP (Auto)")
+            self.lbl_info_gateway.config(
+                text=" "
+            )  # Use a space to keep vertical height but not show gateway text
+            self.lbl_info_cidr.config(text="Subnet CIDR: DHCP (Auto)")
         else:
             self.lbl_info_mode.config(text="Mode: Static IP")
             ip = prof_data.get("Ip", "")
             mask = prof_data.get("mask", "")
-            
+
             # Calculate CIDR
             try:
                 interface = ipaddress.IPv4Interface(f"{ip}/{mask}")
                 cidr = str(interface.network)
             except Exception:
                 cidr = "Invalid IP/Mask"
-            
+
             self.lbl_info_ip.config(text=f"IP Address: {ip}")
             self.lbl_info_mask.config(text=f"Subnet Mask: {mask}")
             self.lbl_info_gateway.config(text=f"Gateway: {gw}")
@@ -441,7 +493,7 @@ class App:
         if not profile_key:
             return
         selected_adapter = self.cbo_mapping.get()
-        
+
         profiles = self.config.get_all() or {}
         if profile_key in profiles:
             profiles[profile_key]["AdapterName"] = selected_adapter
@@ -548,6 +600,14 @@ class App:
     def show_settings(self):
         self.clear_content_area()
 
+        # Header
+        header = ttk.Label(
+            self.current_frame,
+            text="Profile Settings",
+            style="Heading.TLabel",
+        )
+        header.pack(anchor=tk.W, pady=(0, 15))
+
         # Header Profile Selector Frame
         selector_frame = ttk.Frame(self.current_frame)
         selector_frame.pack(fill=tk.X, pady=(0, 15))
@@ -562,7 +622,9 @@ class App:
             selector_frame, state="readonly", width=35
         )
         self.cbo_profile_select.pack(side=tk.LEFT, padx=(0, 15))
-        self.cbo_profile_select.bind("<<ComboboxSelected>>", self.on_profile_select_changed)
+        self.cbo_profile_select.bind(
+            "<<ComboboxSelected>>", self.on_profile_select_changed
+        )
 
         btn_new = ttk.Button(
             selector_frame,
@@ -579,10 +641,14 @@ class App:
         self.left_editor_frame = ttk.LabelFrame(
             settings_container, text="Profile Configuration", padding=15
         )
-        self.left_editor_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        self.left_editor_frame.pack(
+            side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10)
+        )
 
         # Profile Name
-        ttk.Label(self.left_editor_frame, text="Profile Name:").pack(anchor=tk.W, pady=(5, 2))
+        ttk.Label(self.left_editor_frame, text="Profile Name:").pack(
+            anchor=tk.W, pady=(5, 2)
+        )
         self.ent_profile_name = ttk.Entry(self.left_editor_frame, font=("Segoe UI", 10))
         self.ent_profile_name.pack(fill=tk.X, pady=(0, 10))
 
@@ -593,7 +659,7 @@ class App:
         self.router_mode = tk.StringVar(value="dhcp")
 
         ttk.Label(mode_frame, text="IP Assignment Mode:").pack(anchor=tk.W, pady=(0, 5))
-        
+
         self.rad_static = ttk.Radiobutton(
             mode_frame,
             text="Static IP",
@@ -629,10 +695,15 @@ class App:
         self.ent_gateway.pack(fill=tk.X, pady=(0, 10))
 
         # Mapped Adapter Selection
-        ttk.Label(self.left_editor_frame, text="Mapped Adapter:").pack(anchor=tk.W, pady=(5, 2))
+        ttk.Label(self.left_editor_frame, text="Mapped Adapter:").pack(
+            anchor=tk.W, pady=(5, 2)
+        )
         adapters = getattr(self, "sys_adapters_names", [""])
         self.cbo_profile_adapter = ttk.Combobox(
-            self.left_editor_frame, values=adapters, state="readonly", font=("Segoe UI", 10)
+            self.left_editor_frame,
+            values=adapters,
+            state="readonly",
+            font=("Segoe UI", 10),
         )
         self.cbo_profile_adapter.pack(fill=tk.X, pady=(0, 15))
 
@@ -657,9 +728,11 @@ class App:
             highlightthickness=0,
         )
         # Scrollbar for subnet listbox
-        sb_subnets = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self.list_subnets.yview)
+        sb_subnets = ttk.Scrollbar(
+            list_container, orient=tk.VERTICAL, command=self.list_subnets.yview
+        )
         self.list_subnets.configure(yscrollcommand=sb_subnets.set)
-        
+
         self.list_subnets.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb_subnets.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -728,9 +801,9 @@ class App:
     def refresh_profile_combobox(self, select_key=None):
         profiles = self.config.get_all() or {}
         profile_keys = list(profiles.keys())
-        
+
         self.cbo_profile_select.config(values=profile_keys)
-        
+
         if select_key and select_key in profile_keys:
             self.cbo_profile_select.set(select_key)
             self.load_profile_into_editor(select_key)
@@ -744,7 +817,7 @@ class App:
     def load_profile_into_editor(self, profile_key):
         profiles = self.config.get_all() or {}
         prof_data = profiles.get(profile_key)
-        
+
         self.ent_profile_name.config(state="normal")
         self.ent_profile_name.delete(0, tk.END)
         self.ent_gateway.config(state="normal")
@@ -753,7 +826,7 @@ class App:
         self.ent_ip.delete(0, tk.END)
         self.ent_mask.config(state="normal")
         self.ent_mask.delete(0, tk.END)
-        
+
         if not prof_data:
             self.is_new_profile = True
             self.editing_profile_key = None
@@ -771,7 +844,7 @@ class App:
         self.is_new_profile = False
         self.editing_profile_key = profile_key
         self.btn_delete_profile.config(state="normal")
-        
+
         if ":" in profile_key:
             gw, name = profile_key.split(":", 1)
         else:
@@ -783,10 +856,10 @@ class App:
         self.ent_gateway.insert(0, gw)
         self.ent_ip.insert(0, prof_data.get("Ip", ""))
         self.ent_mask.insert(0, prof_data.get("mask", "255.255.255.0"))
-        
+
         bound_adapter = prof_data.get("AdapterName", "")
         self.cbo_profile_adapter.set(bound_adapter)
-        
+
         self.refresh_editor_subnet_list(prof_data.get("route-list") or [])
         self.on_router_mode_change()
 
@@ -799,16 +872,18 @@ class App:
         name = self.ent_profile_name.get().strip()
         mode = self.router_mode.get()
         adapter = self.cbo_profile_adapter.get()
-        
+
         if not name:
             messagebox.showerror("Validation Error", "Profile Name cannot be empty.")
             return
-            
+
         if ":" in name:
-            messagebox.showerror("Validation Error", "Profile Name cannot contain a colon (:).")
+            messagebox.showerror(
+                "Validation Error", "Profile Name cannot contain a colon (:)."
+            )
             return
 
-        is_dhcp = (mode == "dhcp")
+        is_dhcp = mode == "dhcp"
         ip = ""
         mask = ""
         gateway = ""
@@ -816,13 +891,18 @@ class App:
         if not is_dhcp:
             gateway = self.ent_gateway.get().strip()
             if not gateway:
-                messagebox.showerror("Validation Error", "Gateway IP address is required for Static IP mode.")
+                messagebox.showerror(
+                    "Validation Error",
+                    "Gateway IP address is required for Static IP mode.",
+                )
                 return
 
             try:
                 ipaddress.ip_address(gateway)
             except ValueError:
-                messagebox.showerror("Validation Error", "Invalid Gateway IP Address format.")
+                messagebox.showerror(
+                    "Validation Error", "Invalid Gateway IP Address format."
+                )
                 return
 
             ip = self.ent_ip.get().strip()
@@ -832,7 +912,8 @@ class App:
                 ipaddress.IPv4Interface(f"{ip}/{mask}")
             except ValueError:
                 messagebox.showerror(
-                    "Validation Error", "Invalid Static IP Address or Subnet Mask format."
+                    "Validation Error",
+                    "Invalid Static IP Address or Subnet Mask format.",
                 )
                 return
 
@@ -856,7 +937,11 @@ class App:
             )
             return
 
-        if not self.is_new_profile and self.editing_profile_key and self.editing_profile_key != new_key:
+        if (
+            not self.is_new_profile
+            and self.editing_profile_key
+            and self.editing_profile_key != new_key
+        ):
             self.config.delete(self.editing_profile_key)
 
         profiles[new_key] = {
@@ -865,7 +950,7 @@ class App:
             "Ip": ip,
             "mask": mask,
             "IpGateway": gateway,
-            "route-list": subnets
+            "route-list": subnets,
         }
         self.config.save_config()
 
@@ -916,3 +1001,6 @@ class App:
             return
 
         self.list_subnets.delete(selected[0])
+
+    def show_about(self):
+        AboutDialog(self.root)

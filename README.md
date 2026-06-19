@@ -1,4 +1,4 @@
-# simple Connection
+# Simply2Connection
 
 A Windows desktop tool for managing network adapter IP configuration and static routing profiles. Designed for environments where a single machine connects to multiple networks (e.g. a direct-wired router, a SIM card router, and a USB dongle) and needs to quickly switch between them with the correct IP settings and subnet routes.
 
@@ -30,11 +30,11 @@ SimpleConnection automates all of this with a single click.
 ## Project Structure
 
 ```
-simpleConnection/
+Simply2Connection/
 ├── main.py                  # Entrypoint — requests admin privileges, launches App
 ├── get_route.py             # RouteService: reads system routing table
 ├── requirements.txt         # Python dependencies
-├── build_win.py             # PyInstaller build script → dist_win/SimpleConnection/
+├── build_win.py             # PyInstaller build script → dist_win/
 ├── config.yaml              # Persistent user configuration
 ├── README.md                # README
 │
