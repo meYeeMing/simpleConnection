@@ -1,0 +1,30 @@
+{
+  "theme": "clam",
+  "colors": {
+    "background": "#f8f9fa",
+    "foreground": "#212529",
+    "sidebar_bg": "#e9ecef",
+    "sidebar_btn_bg": "#dee2e6",
+    "sidebar_btn_fg": "#212529",
+    "sidebar_btn_active_bg": "#0066cc",
+    "sidebar_btn_active_fg": "#ffffff",
+    "sidebar_btn_pressed_bg": "#004499",
+    "heading_fg": "#0066cc",
+    "subheading_fg": "#495057",
+    "primary": "#0066cc",
+    "primary_fg": "#ffffff",
+    "active_green": "#2b8a3e",
+    "pressed_green": "#206a2e",
+    "treeview_bg": "#ffffff",
+    "treeview_fieldbg": "#ffffff",
+    "treeview_selected_bg": "#dee2e6"
+  },
+  "fonts": {
+    "default": ["Segoe UI", 10],
+    "default_bold": ["Segoe UI", 10, "bold"],
+    "heading": ["Segoe UI", 16, "bold"],
+    "subheading": ["Segoe UI", 12, "bold"],
+    "small": ["Segoe UI", 9],
+    "small_bold": ["Segoe UI", 9, "bold"]
+  }
+}
